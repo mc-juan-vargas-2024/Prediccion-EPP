@@ -210,3 +210,4 @@ Proyecto de detección de Equipos de Protección Personal usando visión por com
 
 
 # Prediccion-EPP
+# Prediccion-EPP
