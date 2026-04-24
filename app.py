@@ -146,6 +146,36 @@ html, body, [class*="css"] {
     margin-bottom: 8px;
 }
 
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background: var(--panel) !important;
+    border-bottom: 2px solid var(--borde) !important;
+    gap: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: #556070 !important;
+    font-family: 'Rajdhani', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 15px !important;
+    padding: 10px 24px !important;
+    border: none !important;
+    letter-spacing: 1px;
+}
+.stTabs [aria-selected="true"] {
+    color: var(--amarillo) !important;
+    border-bottom: 2px solid var(--amarillo) !important;
+    background: transparent !important;
+}
+
+/* Camara snapshot */
+.cam-frame {
+    width: 100%;
+    border-radius: 6px;
+    border: 2px solid var(--amarillo);
+    display: block;
+}
+
 #MainMenu, footer, header { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -160,18 +190,9 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.markdown("""
-<div class="info-panel" style="font-size:12px;line-height:1.7;">
-    <b>Umbral de confianza:</b> nivel mínimo de certeza para mostrar una detección. 
-    Valores altos reducen falsos positivos; bajos detectan más con menor seguridad.<br><br>
-    <b>Umbral IoU (NMS):</b> controla el solapamiento permitido entre cajas. 
-    Valores bajos eliminan más duplicados; altos permiten cajas más próximas.<br><br>
-    <b>Grosor de caja:</b> tamaño en px del borde dibujado sobre cada detección.
-</div>
-""", unsafe_allow_html=True)
 
 # ── Carga automática del modelo ───────────────────────────────────────────────
-MODEL_PATH = Path(__file__).parent / "best.onnx"
+MODEL_PATH = Path(__file__).parent / "best.pt"
 
 @st.cache_resource
 def cargar_modelo():
@@ -216,21 +237,13 @@ with st.sidebar:
     st.markdown("### Acerca de")
     st.markdown("""
 <div class="info-panel">
-Sube una imagen o video para detectar EPP.<br>
-El modelo detectará elementos como:<br><br>
+Detecta EPP en imágenes, videos<br>
+y cámara en tiempo real.<br><br>
 🪖 Casco &nbsp;·&nbsp; 🦺 Chaleco<br>
 🧤 Guantes &nbsp;·&nbsp; 👓 Gafas<br>
 👢 Botas &nbsp;·&nbsp; 😷 Mascarilla
 </div>
 """, unsafe_allow_html=True)
-
-# ── Subida de archivo ─────────────────────────────────────────────────────────
-st.markdown("### 📂 Subir imagen o video")
-archivo_subido = st.file_uploader(
-    "Arrastra y suelta o haz clic para seleccionar",
-    type=["jpg", "jpeg", "png", "bmp", "webp", "mp4", "avi", "mov", "mkv"],
-    label_visibility="collapsed",
-)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def frame_a_base64(frame_bgr):
@@ -249,7 +262,6 @@ def html_video_tag(b64_data, mime="video/mp4"):
 <div class="video-container">
   <video controls preload="metadata">
     <source src="data:{mime};base64,{b64_data}" type="{mime}">
-    Tu navegador no soporta reproducción de video.
   </video>
 </div>
 """
@@ -287,7 +299,7 @@ def procesar_imagen(bytes_archivo, mdl, conf, iou, grosor):
     anotado, cnt = dibujar_resultados(frame, resultados[0], grosor)
     return cv2.cvtColor(anotado, cv2.COLOR_BGR2RGB), cnt, resultados[0]
 
-# ── Pipeline VIDEO con preview en tiempo real ─────────────────────────────────
+# ── Pipeline VIDEO ────────────────────────────────────────────────────────────
 def procesar_video(bytes_archivo, mdl, conf, iou, grosor,
                    barra, estado_txt, preview_slot):
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_in:
@@ -305,15 +317,13 @@ def procesar_video(bytes_archivo, mdl, conf, iou, grosor,
     escritor = cv2.VideoWriter(ruta_salida, fourcc, fps, (ancho, alto))
 
     PREVIEW_CADA = max(1, int(fps // 4))
-
-    idx        = 0
+    idx = 0
     total_dets = 0
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-
         resultados   = mdl(frame, conf=conf, iou=iou, verbose=False)
         anotado, cnt = dibujar_resultados(frame, resultados[0], grosor)
         escritor.write(anotado)
@@ -323,16 +333,13 @@ def procesar_video(bytes_archivo, mdl, conf, iou, grosor,
         barra.progress(min(idx / max(total, 1), 1.0))
         estado_txt.markdown(
             f'<div class="info-panel">🎞 Fotograma {idx}/{total} · '
-            f'Detecciones en frame: <b>{cnt}</b> · '
-            f'Total acumulado: <b>{total_dets}</b></div>',
+            f'Detecciones: <b>{cnt}</b> · Total: <b>{total_dets}</b></div>',
             unsafe_allow_html=True,
         )
-
         if idx % PREVIEW_CADA == 0 or idx == 1:
             b64 = frame_a_base64(anotado)
             preview_slot.markdown(
-                f'<img src="data:image/jpeg;base64,{b64}" '
-                f'class="frame-preview" alt="frame {idx}">',
+                f'<img src="data:image/jpeg;base64,{b64}" class="frame-preview">',
                 unsafe_allow_html=True,
             )
 
@@ -341,168 +348,405 @@ def procesar_video(bytes_archivo, mdl, conf, iou, grosor,
     os.unlink(ruta_entrada)
     return ruta_salida, total_dets, idx
 
-# ── Área principal ────────────────────────────────────────────────────────────
-if archivo_subido:
-    bytes_archivo = archivo_subido.read()
-    ext      = Path(archivo_subido.name).suffix.lower()
-    es_video = ext in {".mp4", ".avi", ".mov", ".mkv"}
+# ── TABS principales ──────────────────────────────────────────────────────────
+tab_imagen, tab_video, tab_camara = st.tabs([
+    "🖼️  Imagen",
+    "🎬  Video",
+    "📷  Cámara en vivo",
+])
 
-    col_orig, col_pred = st.columns(2, gap="large")
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 1 — IMAGEN
+# ════════════════════════════════════════════════════════════════════════════
+with tab_imagen:
+    st.markdown("### 📂 Subir imagen")
+    archivo_img = st.file_uploader(
+        "Arrastra o selecciona una imagen",
+        type=["jpg", "jpeg", "png", "bmp", "webp"],
+        label_visibility="collapsed",
+        key="uploader_img",
+    )
 
-    # ════════════════════════════════════════════════════════════
-    # IMAGEN
-    # ════════════════════════════════════════════════════════════
-    if not es_video:
+    if archivo_img:
+        bytes_img = archivo_img.read()
+        col_orig, col_pred = st.columns(2, gap="large")
         with col_orig:
             st.markdown("#### Original")
-            st.image(Image.open(io.BytesIO(bytes_archivo)), use_container_width=True)
-
+            st.image(Image.open(io.BytesIO(bytes_img)), use_container_width=True)
         with col_pred:
             st.markdown("#### Predicción")
             if not modelo:
-                st.markdown(
-                    '<div class="info-panel estado-warn">⚠ Coloca <b>best.pt</b> en la misma carpeta que app.py</div>',
-                    unsafe_allow_html=True,
-                )
+                st.markdown('<div class="info-panel estado-warn">⚠ Modelo no encontrado</div>', unsafe_allow_html=True)
             else:
-                with st.spinner("Ejecutando inferencia …"):
-                    anotado_rgb, cnt, _ = procesar_imagen(
-                        bytes_archivo, modelo, umbral_conf, umbral_iou, grosor_linea
-                    )
+                with st.spinner("Ejecutando inferencia…"):
+                    anotado_rgb, cnt, _ = procesar_imagen(bytes_img, modelo, umbral_conf, umbral_iou, grosor_linea)
                 st.image(anotado_rgb, use_container_width=True)
-
-                st.markdown("#### Resultados")
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Detecciones",  cnt)
-                m2.metric("Confianza",    f"{umbral_conf:.0%}")
-                m3.metric("Resolución",   f"{anotado_rgb.shape[1]}×{anotado_rgb.shape[0]}")
-
+                m1.metric("Detecciones", cnt)
+                m2.metric("Confianza",   f"{umbral_conf:.0%}")
+                m3.metric("Resolución",  f"{anotado_rgb.shape[1]}×{anotado_rgb.shape[0]}")
                 buf = io.BytesIO()
                 Image.fromarray(anotado_rgb).save(buf, format="PNG")
                 buf.seek(0)
                 st.download_button(
-                    label="⬇ Descargar imagen con predicción",
+                    "⬇ Descargar imagen con predicción",
                     data=buf,
-                    file_name=f"epp_{Path(archivo_subido.name).stem}_pred.png",
+                    file_name=f"epp_{Path(archivo_img.name).stem}_pred.png",
                     mime="image/png",
                     use_container_width=True,
                 )
-
-    # ════════════════════════════════════════════════════════════
-    # VIDEO
-    # ════════════════════════════════════════════════════════════
     else:
-        mime_map  = {".mp4": "video/mp4", ".avi": "video/avi",
-                     ".mov": "video/quicktime", ".mkv": "video/x-matroska"}
-        mime_orig = mime_map.get(ext, "video/mp4")
+        st.markdown("""
+<div style="background:#12161C;border:1px solid #1E2530;border-radius:8px;
+    padding:50px 40px;text-align:center;margin-top:10px;">
+    <div style="font-size:56px;margin-bottom:12px;">🖼️</div>
+    <div style="font-size:1.3rem;font-weight:700;color:#fff;">Sube una imagen para comenzar</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#556070;margin-top:8px;">
+        Formatos: JPG · PNG · BMP · WEBP
+    </div>
+</div>""", unsafe_allow_html=True)
 
-        # Claves únicas por archivo en session_state
-        clave_orig = f"orig_{archivo_subido.name}_{len(bytes_archivo)}"
-        clave_pred = f"pred_{archivo_subido.name}_{len(bytes_archivo)}"
-        clave_meta = f"meta_{archivo_subido.name}_{len(bytes_archivo)}"
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 2 — VIDEO
+# ════════════════════════════════════════════════════════════════════════════
+with tab_video:
+    st.markdown("### 📂 Subir video")
+    archivo_vid = st.file_uploader(
+        "Arrastra o selecciona un video",
+        type=["mp4", "avi", "mov", "mkv"],
+        label_visibility="collapsed",
+        key="uploader_vid",
+    )
 
-        # Codificar el original solo una vez y persistirlo
-        if clave_orig not in st.session_state:
-            st.session_state[clave_orig] = base64.b64encode(bytes_archivo).decode()
+    if archivo_vid:
+        bytes_vid = archivo_vid.read()
+        ext       = Path(archivo_vid.name).suffix.lower()
+        clave_pred = f"pred_{archivo_vid.name}_{len(bytes_vid)}"
+        clave_meta = f"meta_{archivo_vid.name}_{len(bytes_vid)}"
 
-        # ── Columna izquierda: mensaje video cargado ────────────────────
+        col_orig, col_pred = st.columns(2, gap="large")
+
         with col_orig:
             st.markdown("#### Video original")
-            nombre = archivo_subido.name
-            tam_mb = len(bytes_archivo) / 1024 / 1024
+            tam_mb = len(bytes_vid) / 1024 / 1024
             st.markdown(
-                f"""<div class="info-panel estado-ok" style="text-align:center;padding:40px 20px;">
-                <div style="font-size:48px;margin-bottom:12px;">✅</div>
-                <div style="font-size:1.2rem;font-weight:700;color:#fff;margin-bottom:8px;">Video cargado correctamente</div>
-                <div style="font-size:11px;color:#556070;">{nombre} &nbsp;·&nbsp; {tam_mb:.1f} MB</div>
-                </div>""",
+                f'<div class="info-panel estado-ok" style="text-align:center;padding:40px 20px;">'
+                f'<div style="font-size:40px;margin-bottom:10px;">✅</div>'
+                f'<div style="font-size:1.1rem;font-weight:700;color:#fff;">{archivo_vid.name}</div>'
+                f'<div style="font-size:11px;color:#556070;margin-top:4px;">{tam_mb:.1f} MB</div></div>',
                 unsafe_allow_html=True,
             )
 
-        # ── Columna derecha: predicción ───────────────────────────────────
         with col_pred:
             st.markdown("#### Predicción")
-
             if not modelo:
-                st.markdown(
-                    '<div class="info-panel estado-warn">⚠ Coloca <b>best.pt</b> '
-                    'en la misma carpeta que app.py</div>',
-                    unsafe_allow_html=True,
-                )
-
+                st.markdown('<div class="info-panel estado-warn">⚠ Modelo no encontrado</div>', unsafe_allow_html=True)
             elif clave_pred in st.session_state:
-                # Ya procesado: solo botón de descarga
                 meta = st.session_state[clave_meta]
                 st.markdown(
-                    f'''<div class="info-panel estado-ok" style="text-align:center;padding:24px 20px;">
-                    <div style="font-size:36px;margin-bottom:8px;">✅</div>
-                    <div style="font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:4px;">Predicción completada</div>
-                    <div style="font-size:11px;color:#556070;">{meta["total_dets"]} detecciones · {meta["total_frames"]} fotogramas</div>
-                    </div>''',
+                    f'<div class="info-panel estado-ok" style="text-align:center;padding:24px;">'
+                    f'<div style="font-size:32px;">✅</div>'
+                    f'<div style="font-weight:700;color:#fff;margin-top:8px;">Completado</div>'
+                    f'<div style="font-size:11px;color:#556070;">{meta["total_dets"]} detecciones · {meta["total_frames"]} frames</div></div>',
                     unsafe_allow_html=True,
                 )
                 st.download_button(
-                    label="⬇ Descargar video con predicción",
+                    "⬇ Descargar video con predicción",
                     data=base64.b64decode(st.session_state[clave_pred]),
-                    file_name=f"epp_{Path(archivo_subido.name).stem}_pred.mp4",
+                    file_name=f"epp_{Path(archivo_vid.name).stem}_pred.mp4",
                     mime="video/mp4",
                     use_container_width=True,
                 )
-
             else:
-                # Aún no procesado: botón + slots de progreso
                 preview_slot = st.empty()
                 barra_slot   = st.empty()
                 estado_slot  = st.empty()
-
                 if st.button("▶ Ejecutar detección en video", use_container_width=True):
-                    preview_slot.markdown(
-                        '<div class="info-panel" style="text-align:center;padding:40px;">'
-                        '⏳ Iniciando procesamiento…</div>',
-                        unsafe_allow_html=True,
-                    )
+                    preview_slot.markdown('<div class="info-panel" style="text-align:center;padding:40px;">⏳ Iniciando…</div>', unsafe_allow_html=True)
                     barra_prog = barra_slot.progress(0.0)
-
                     ruta_salida, total_dets, total_frames = procesar_video(
-                        bytes_archivo, modelo,
-                        umbral_conf, umbral_iou, grosor_linea,
+                        bytes_vid, modelo, umbral_conf, umbral_iou, grosor_linea,
                         barra_prog, estado_slot, preview_slot,
                     )
-
-                    barra_slot.empty()
-                    estado_slot.empty()
-
-                    # Persistir resultado en session_state
+                    barra_slot.empty(); estado_slot.empty()
                     st.session_state[clave_pred] = video_a_base64(ruta_salida)
-                    st.session_state[clave_meta] = {
-                        "total_dets": total_dets,
-                        "total_frames": total_frames,
-                    }
+                    st.session_state[clave_meta] = {"total_dets": total_dets, "total_frames": total_frames}
                     os.unlink(ruta_salida)
-
-                    # Rerender limpio: ambos videos lado a lado con controles
                     st.rerun()
+    else:
+        st.markdown("""
+<div style="background:#12161C;border:1px solid #1E2530;border-radius:8px;
+    padding:50px 40px;text-align:center;margin-top:10px;">
+    <div style="font-size:56px;margin-bottom:12px;">🎬</div>
+    <div style="font-size:1.3rem;font-weight:700;color:#fff;">Sube un video para comenzar</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#556070;margin-top:8px;">
+        Formatos: MP4 · AVI · MOV · MKV
+    </div>
+</div>""", unsafe_allow_html=True)
 
-else:
-    # ── Banner de bienvenida ──────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 3 — CÁMARA EN VIVO (detección real frame a frame con YOLO)
+# ════════════════════════════════════════════════════════════════════════════
+with tab_camara:
+    st.markdown("### 📷 Detección en tiempo real")
     st.markdown("""
-<div style="
-    background:#12161C;border:1px solid #1E2530;border-radius:8px;
-    padding:60px 40px;text-align:center;margin-top:20px;">
-    <div style="font-size:72px;margin-bottom:16px;">🦺</div>
-    <div style="font-size:1.6rem;font-weight:700;color:#fff;margin-bottom:8px;">
-        Detección de Equipo de Protección Personal
-    </div>
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#556070;margin-bottom:32px;">
-        Asegúrate de tener <b style="color:#F5C518">best.pt</b> en la misma carpeta · luego sube una imagen o video
-    </div>
-    <div style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap;">
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">🪖 Cascos</span>
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">🦺 Chalecos</span>
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">🧤 Guantes</span>
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">👓 Gafas</span>
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">😷 Mascarillas</span>
-        <span style="background:#1E2530;padding:10px 20px;border-radius:4px;font-size:14px;">👢 Botas</span>
-    </div>
+<div class="info-panel" style="font-size:12px;line-height:1.7;">
+    El modelo analiza cada frame de la cámara en tiempo real.<br>
+    <b>Tip:</b> Permite el acceso a la cámara cuando el navegador lo solicite.
 </div>
 """, unsafe_allow_html=True)
+
+    if not modelo:
+        st.markdown(
+            '<div class="info-panel estado-warn">⚠ Modelo no encontrado. '
+            'Coloca <b>best.pt</b> en la carpeta del proyecto.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        try:
+            from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+            import av
+
+            # ── Configuración STUN/TURN para conexión WebRTC ──────────────
+            RTC_CONFIG = RTCConfiguration({
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                    {"urls": ["stun:stun1.l.google.com:19302"]},
+                ]
+            })
+
+            # ── Processor: cada frame pasa por aquí ───────────────────────
+            class DetectorEPP(VideoProcessorBase):
+
+                def __init__(self):
+                    self.conf       = umbral_conf
+                    self.iou        = umbral_iou
+                    self.grosor     = grosor_linea
+                    self.detecciones = 0
+                    self.nombres_det = []
+
+                def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+                    # Convertir frame a numpy BGR
+                    img_bgr = frame.to_ndarray(format="bgr24")
+
+                    # Inferencia YOLO
+                    resultados = modelo(
+                        img_bgr,
+                        conf=self.conf,
+                        iou=self.iou,
+                        verbose=False,
+                    )
+                    resultado = resultados[0]
+
+                    # Dibujar cajas
+                    anotado, cnt = dibujar_resultados(img_bgr, resultado, self.grosor)
+
+                    # Guardar stats para mostrar en sidebar
+                    self.detecciones = cnt
+                    if resultado.boxes and len(resultado.boxes) > 0:
+                        nombres = resultado.names
+                        self.nombres_det = [
+                            f"{nombres[int(c.cls[0])]} {float(c.conf[0]):.0%}"
+                            for c in resultado.boxes
+                        ]
+                    else:
+                        self.nombres_det = []
+
+                    # Superponer contador en el frame
+                    h, w = anotado.shape[:2]
+                    overlay_txt = f"EPP: {cnt} detecciones"
+                    cv2.rectangle(anotado, (0, 0), (w, 36), (10, 12, 15), -1)
+                    cv2.putText(
+                        anotado, overlay_txt,
+                        (10, 24),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (245, 197, 24), 2, cv2.LINE_AA,
+                    )
+
+                    # Devolver frame anotado
+                    return av.VideoFrame.from_ndarray(anotado, format="bgr24")
+
+            # ── Panel lateral: stats en vivo ──────────────────────────────
+            col_cam, col_info = st.columns([3, 1], gap="medium")
+
+            with col_cam:
+                ctx = webrtc_streamer(
+                    key="epp-live",
+                    video_processor_factory=DetectorEPP,
+                    rtc_configuration=RTC_CONFIG,
+                    media_stream_constraints={
+                        "video": {
+                            "width":  {"ideal": 640},
+                            "height": {"ideal": 480},
+                            "frameRate": {"ideal": 24},
+                        },
+                        "audio": False,
+                    },
+                    async_processing=True,
+                    translations={
+                        "start": "▶ Iniciar cámara",
+                        "stop":  "⏹ Detener",
+                        "select_device": "Seleccionar cámara",
+                    },
+                )
+
+            with col_info:
+                st.markdown("#### Estado")
+
+                if ctx.state.playing:
+                    st.markdown(
+                        '<div class="info-panel estado-ok" style="text-align:center;padding:14px;">'
+                        '<b style="color:#30D158;font-size:13px;">● EN VIVO</b></div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    # Refresca stats del processor cada 0.5s
+                    import time
+                    stats_placeholder = st.empty()
+                    objetos_placeholder = st.empty()
+
+                    while ctx.state.playing:
+                        if ctx.video_processor:
+                            proc = ctx.video_processor
+                            cnt  = proc.detecciones
+                            noms = proc.nombres_det
+
+                            # Métrica principal
+                            stats_placeholder.markdown(
+                                f'<div class="info-panel" style="text-align:center;padding:16px;">'
+                                f'<div style="font-family:\'IBM Plex Mono\',monospace;'
+                                f'font-size:10px;color:#556070;letter-spacing:1px;">OBJETOS</div>'
+                                f'<div style="font-size:2.4rem;color:#F5C518;font-weight:700;">{cnt}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                            # Lista de objetos
+                            if noms:
+                                items_html = "".join([
+                                    f'<div style="padding:7px 12px;margin-bottom:6px;'
+                                    f'background:#0A0C0F;border-left:3px solid #F5C518;'
+                                    f'font-family:\'IBM Plex Mono\',monospace;font-size:11px;'
+                                    f'color:#C8D0DC;border-radius:2px;">'
+                                    f'{n}</div>'
+                                    for n in noms
+                                ])
+                                objetos_placeholder.markdown(
+                                    f'<div style="margin-top:8px;">'
+                                    f'<div style="font-family:\'IBM Plex Mono\',monospace;'
+                                    f'font-size:10px;color:#556070;letter-spacing:1px;'
+                                    f'margin-bottom:6px;">DETECTADOS</div>'
+                                    f'{items_html}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                objetos_placeholder.markdown(
+                                    '<div class="info-panel" style="font-size:11px;'
+                                    'color:#556070;text-align:center;">Sin detecciones</div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                        time.sleep(0.5)
+
+                else:
+                    st.markdown(
+                        '<div class="info-panel" style="text-align:center;padding:14px;">'
+                        '<span style="color:#556070;font-size:12px;">— INACTIVO</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("""
+<div class="info-panel" style="font-size:11px;line-height:1.8;margin-top:8px;">
+🪖 Casco<br>
+🦺 Chaleco<br>
+🧤 Guantes<br>
+👓 Gafas<br>
+👢 Botas<br>
+😷 Mascarilla
+</div>
+""", unsafe_allow_html=True)
+
+        except ImportError:
+            st.error("❌ Falta instalar streamlit-webrtc")
+            st.code("pip install streamlit-webrtc", language="bash")
+            st.markdown("""
+<div class="info-panel estado-warn" style="font-size:12px;line-height:1.8;">
+Después de instalar, reinicia Streamlit:<br>
+<code>streamlit run app.py</code>
+</div>
+""", unsafe_allow_html=True)
+    st.markdown("### 📷 Cámara en vivo")
+    st.markdown("""
+<div class="info-panel" style="font-size:12px;line-height:1.7;">
+    Captura una foto con tu cámara y el modelo analizará la imagen automáticamente.<br>
+    <b>Tip:</b> Asegúrate de dar permiso de cámara al navegador cuando lo solicite.
+</div>
+""", unsafe_allow_html=True)
+
+    if not modelo:
+        st.markdown('<div class="info-panel estado-warn">⚠ Modelo no encontrado. Coloca <b>best.pt</b> en la carpeta del proyecto.</div>', unsafe_allow_html=True)
+    else:
+        # st.camera_input es el widget nativo de Streamlit para acceder a la cámara
+        foto = st.camera_input(
+            label="Captura una foto",
+            label_visibility="collapsed",
+            key="camara_input",
+        )
+
+        if foto:
+            bytes_foto = foto.read()
+            col_orig, col_pred = st.columns(2, gap="large")
+
+            with col_orig:
+                st.markdown("#### Foto capturada")
+                st.image(Image.open(io.BytesIO(bytes_foto)), use_container_width=True)
+
+            with col_pred:
+                st.markdown("#### Detección EPP")
+                with st.spinner("Analizando imagen…"):
+                    anotado_rgb, cnt, resultado = procesar_imagen(
+                        bytes_foto, modelo, umbral_conf, umbral_iou, grosor_linea
+                    )
+                st.image(anotado_rgb, use_container_width=True)
+
+                # Métricas
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Objetos detectados", cnt)
+                m2.metric("Confianza mínima",   f"{umbral_conf:.0%}")
+                m3.metric("Resolución",          f"{anotado_rgb.shape[1]}×{anotado_rgb.shape[0]}")
+
+                # Detalle por clase
+                if resultado.boxes and len(resultado.boxes) > 0:
+                    st.markdown("#### Detalle por detección")
+                    nombres = resultado.names
+                    for i, caja in enumerate(resultado.boxes):
+                        cls  = int(caja.cls[0])
+                        conf = float(caja.conf[0])
+                        nombre_clase = nombres[cls]
+                        st.markdown(
+                            f'<div class="info-panel" style="padding:10px 16px;margin-bottom:8px;">'
+                            f'<b style="color:#fff;">#{i+1} {nombre_clase}</b> '
+                            f'<span style="color:#F5C518;float:right;">confianza: {conf:.2%}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+
+                # Descarga
+                buf = io.BytesIO()
+                Image.fromarray(anotado_rgb).save(buf, format="PNG")
+                buf.seek(0)
+                st.download_button(
+                    "⬇ Descargar foto con detecciones",
+                    data=buf,
+                    file_name="epp_camara_pred.png",
+                    mime="image/png",
+                    use_container_width=True,
+                )
+        else:
+            st.markdown("""
+<div style="background:#12161C;border:1px solid #1E2530;border-radius:8px;
+    padding:40px;text-align:center;margin-top:10px;">
+    <div style="font-size:56px;margin-bottom:12px;">📷</div>
+    <div style="font-size:1.3rem;font-weight:700;color:#fff;">Presiona el botón para activar la cámara</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#556070;margin-top:8px;">
+        La detección se ejecutará automáticamente al capturar la foto
+    </div>
+</div>""", unsafe_allow_html=True)
