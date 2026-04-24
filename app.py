@@ -192,7 +192,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Carga automática del modelo ───────────────────────────────────────────────
-MODEL_PATH = Path(__file__).parent / "best.pt"
+MODEL_PATH = Path(__file__).parent / "best.onnx"
 
 @st.cache_resource
 def cargar_modelo():
