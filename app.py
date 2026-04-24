@@ -192,21 +192,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Carga automática del modelo ───────────────────────────────────────────────
-MODEL_PATH = Path(__file__).parent / "best.onnx"
+# DESPUÉS — busca automáticamente .pt o .onnx
+def buscar_modelo():
+    base = Path(__file__).parent
+    for nombre in ["best.onnx", "best.pt", "model.onnx", "model.pt"]:
+        ruta = base / nombre
+        if ruta.exists():
+            return ruta
+    return None
+
+MODEL_PATH = buscar_modelo()
 
 @st.cache_resource
 def cargar_modelo():
     try:
         from ultralytics import YOLO
-        if not MODEL_PATH.exists():
-            return None, f"No se encontró el archivo: {MODEL_PATH}"
+        if MODEL_PATH is None:
+            return None, "No se encontró best.onnx ni best.pt en la carpeta del proyecto"
         mdl = YOLO(str(MODEL_PATH))
         return mdl, None
     except ImportError:
         return None, "ultralytics no instalado. Ejecuta: pip install ultralytics"
     except Exception as e:
         return None, str(e)
-
 modelo, error_modelo = cargar_modelo()
 
 # ── Barra lateral ─────────────────────────────────────────────────────────────
