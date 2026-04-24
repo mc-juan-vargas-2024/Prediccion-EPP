@@ -4,7 +4,7 @@
 **Modelo:** YOLOv8s entrenado con dataset PPE Factory (Roboflow)  
 **Framework:** Streamlit + Ultralytics
 
-🔗 **App en producción:** [Abrir aplicación]([https://TU-LINK-AQUI.streamlit.app](https://prediccion-epp-c3a4ni9hru98cekaqrgoz5.streamlit.app/))
+🔗 **App en producción:** [Abrir aplicación]([https://prediccion-epp-c3a4ni9hru98cekaqrgoz5.streamlit.app/](https://prediccion-epp-c3a4ni9hru98cekaqrgoz5.streamlit.app/))
 
 ---
 
