@@ -221,7 +221,7 @@ with st.sidebar:
     else:
         st.markdown(
             '<div class="info-panel estado-warn">❌ Modelo no encontrado<br>'
-            '<span style="font-size:11px;color:#556070">Coloca best.pt en la misma carpeta que app.py</span></div>',
+            '<span style="font-size:11px;color:#556070">Coloca best.onnx en la misma carpeta que app.py</span></div>',
             unsafe_allow_html=True,
         )
         if error_modelo:
@@ -499,7 +499,7 @@ with tab_camara:
     if not modelo:
         st.markdown(
             '<div class="info-panel estado-warn">⚠ Modelo no encontrado. '
-            'Coloca <b>best.pt</b> en la carpeta del proyecto.</div>',
+            'Coloca <b>best.onnx</b> en la carpeta del proyecto.</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -683,7 +683,7 @@ Después de instalar, reinicia Streamlit:<br>
 """, unsafe_allow_html=True)
 
     if not modelo:
-        st.markdown('<div class="info-panel estado-warn">⚠ Modelo no encontrado. Coloca <b>best.pt</b> en la carpeta del proyecto.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-panel estado-warn">⚠ Modelo no encontrado. Coloca <b>best.onnx</b> en la carpeta del proyecto.</div>', unsafe_allow_html=True)
     else:
         # st.camera_input es el widget nativo de Streamlit para acceder a la cámara
         foto = st.camera_input(
